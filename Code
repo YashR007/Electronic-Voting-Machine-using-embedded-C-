@@ -1,0 +1,130 @@
+#include <lpc21xx.h>
+
+void delay(unsigned int del);
+void display(unsigned int num, unsigned int seg);
+
+// Global counters for 1st and 2nd 7-segment
+unsigned int count1 = 0;
+unsigned int count2 = 0;
+
+// Keypad scan row patterns
+unsigned int row_patterns[4] = {0x00100000, 0x00200000, 0x00400000, 0x00800000};
+unsigned int col_mask = 0x00FF0000;
+
+// Key patterns for easy checking
+unsigned int row0[4] = {0x00ee0000, 0x00ed0000, 0x00eb0000, 0x00e70000};
+
+int main() {
+    unsigned long int value;
+    unsigned int i, r;
+
+    // Keypad setup: P1.16–P1.19 as rows, P1.16–P1.23 as columns
+    IO1DIR = 0xFFF0FFFF;
+    PINSEL1 = 0x00000000;
+
+    // 7-segment lines (P0.16–P0.23), and enable pins (P0.30, P0.31)
+    IO0DIR |= 0x00FF0000;  // segment lines
+    IO0DIR |= (1U<<30) | (1U<<31); // enable pins
+
+    while (1) {
+        int key_detected = 0;
+
+        // Keypad scan
+        for (r = 0; r < 4; r++) {
+            IO1PIN = 0x00FF0000;  // deactivate all rows
+            IOCLR1 = row_patterns[r]; // activate current row
+            delay(1000);
+
+            value = IOPIN1 & col_mask;
+
+            for (i = 0; i < 4; i++) {
+                if (r == 0 && i == 0 && value == row0[i]) { // SW1 pressed
+                    count1 = (count1 + 1) % 10;
+                    key_detected = 1;
+
+                    // Display 1st count
+                    IOSET0 = (1U<<30);  // Enable 1st segment
+                    IOCLR0 = (1U<<31);
+                    display(count1, 0);
+                    delay(300000);   // Debounce delay
+
+                    // Wait until SW1 is released
+                    while ((IOPIN1 & col_mask) == row0[i]);
+                }
+                else if (r == 0 && i == 1 && value == row0[i]) { // SW2 pressed
+                    count2 = (count2 + 1) % 10;
+                    key_detected = 1;
+
+                    // Display 2nd count
+                    IOSET0 = (1U<<31);  // Enable 2nd segment
+                    IOCLR0 = (1U<<30);
+                    display(count2, 1);
+                    delay(300000);   // Debounce delay
+
+                    // Wait until SW2 is released
+                    while ((IOPIN1 & col_mask) == row0[i]);
+                }
+                else if (r == 0 && i == 2 && value == row0[i]) { // SW3 pressed
+                    key_detected = 1;
+                    // Show highest count
+                    while (1) {
+                        if (count1 >= count2) {
+                            IOSET0 = (1U<<30);
+                            IOCLR0 = (1U<<31);
+                            display(count1, 0);
+                        } else {
+                            IOSET0 = (1U<<31);
+                            IOCLR0 = (1U<<30);
+                            display(count2, 1);
+                        }
+                        delay(5000);
+
+                        // Check if SW3 is released
+                        IO1PIN = 0x00FF0000;
+                        IOCLR1 = row_patterns[r];
+                        delay(1000);
+                        value = IOPIN1 & col_mask;
+                        if (value != row0[i]) break;
+                    }
+                }
+            }
+        }
+
+        // Normal multiplexed display
+        if (!key_detected) {
+            IOSET0 = (1U<<30);
+            IOCLR0 = (1U<<31);
+            display(count1, 0);
+            delay(5000);
+
+            IOSET0 = (1U<<31);
+            IOCLR0 = (1U<<30);
+            display(count2, 1);
+            delay(5000);
+        }
+    }
+}
+
+void display(unsigned int num, unsigned int seg) {
+    unsigned int da[10] = {
+        0x003F0000, // 0
+        0x00060000, // 1
+        0x005B0000, // 2
+        0x004F0000, // 3
+        0x00660000, // 4
+        0x006D0000, // 5
+        0x007D0000, // 6
+        0x00070000, // 7
+        0x007F0000, // 8
+        0x006F0000  // 9
+    };
+
+    // Clear segment lines
+    IOCLR0 = 0x00FF0000;
+    IOSET0 = da[num];
+}
+
+void delay(unsigned int del) {
+    unsigned int k;
+    for (k = 0; k < del; k++);
+}
